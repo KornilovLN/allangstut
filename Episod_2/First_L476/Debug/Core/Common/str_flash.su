@@ -1,0 +1,8 @@
+str_flash.c:69:6:Flash_Info	16	static
+str_flash.c:90:10:GetFlashSize	4	static
+str_flash.c:97:10:FLASH_ReadWord	16	static
+str_flash.c:103:6:isFreeFlashPage	24	static
+str_flash.c:119:6:FLASH_Read_Array	32	static
+str_flash.c:128:6:Save_To_FLASH	72	static
+str_flash.c:180:17:GetPage	24	static
+str_flash.c:196:17:GetBank	24	static

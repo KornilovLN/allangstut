@@ -1,0 +1,5 @@
+str_mbregisters.c:57:6:InitRegsInp	4	static
+str_mbregisters.c:99:6:InitRegsHld	16	static
+str_mbregisters.c:157:6:ModifyMainRegisters	16	static
+str_mbregisters.c:240:6:CompareUID	4	static
+str_mbregisters.c:251:6:ClearUID	4	static

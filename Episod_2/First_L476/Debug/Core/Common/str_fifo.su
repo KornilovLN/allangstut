@@ -1,0 +1,7 @@
+str_fifo.c:26:6:Fifo_New	8	static
+str_fifo.c:32:6:Fifo_init	24	static
+str_fifo.c:39:6:Fifo_flush	16	static
+str_fifo.c:44:8:Fifo_put	16	static
+str_fifo.c:58:8:Fifo_get	16	static
+str_fifo.c:73:8:Fifo_count	16	static
+str_fifo.c:83:6:Fifo_CopyBuffer	24	static

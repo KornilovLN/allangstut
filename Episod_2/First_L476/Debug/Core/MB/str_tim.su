@@ -1,0 +1,8 @@
+str_tim.c:37:6:HAL_TIM_PeriodElapsedCallback	16	static
+str_tim.c:64:6:Start_Tim_Base_IT	8	static
+str_tim.c:72:6:Start35	16	static
+str_tim.c:79:6:Stop35	4	static
+str_tim.c:88:6:Start15	16	static
+str_tim.c:95:6:Stop15	4	static
+str_tim.c:101:6:isFlag15	4	static
+str_tim.c:106:6:isFlag35	4	static

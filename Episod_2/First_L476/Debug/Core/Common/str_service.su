@@ -1,0 +1,5 @@
+str_service.c:23:6:LedToggleUart	8	static
+str_service.c:28:6:LedBlink	16	static
+str_service.c:38:6:Init_LedBlinkTime	16	static
+str_service.c:45:6:LedBlinkTime	8	static
+str_service.c:56:9:Generator_Saw	16	static

@@ -1,0 +1,12 @@
+str_mbs.c:83:6:InitMBslave	8	static
+str_mbs.c:91:6:InitMB	24	static
+str_mbs.c:109:6:ReInitMB	16	static
+str_mbs.c:122:6:InitMBbufansver	24	static
+str_mbs.c:140:10:Parser	32	static
+str_mbs.c:243:10:WorkFunc3	32	static
+str_mbs.c:294:10:WorkFunc4	32	static
+str_mbs.c:344:10:WorkFunc6	24	static
+str_mbs.c:397:10:WorkFunc16	32	static
+str_mbs.c:481:10:WorkFunc17	56	static
+str_mbs.c:569:10:WorkFunc65	32	static
+str_mbs.c:616:6:isOurFunc	24	static

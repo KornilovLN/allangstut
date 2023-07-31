@@ -1,0 +1,10 @@
+str_mathcommon.c:21:10:CalcCRC	24	static
+str_mathcommon.c:55:9:CalcLRC	24	static
+str_mathcommon.c:74:10:GetFloatHi	24	static
+str_mathcommon.c:83:10:GetFloatLo	24	static
+str_mathcommon.c:91:7:RoundMy	24	static
+str_mathcommon.c:129:6:Val32ToARRdigit	24	static
+str_mathcommon.c:159:7:HEX32ToARRdigit	24	static
+str_mathcommon.c:188:10:Uint64Revers	64	static
+str_mathcommon.c:204:10:Uint64ReversByBytes	48	static
+str_mathcommon.c:219:6:Waite	24	static
