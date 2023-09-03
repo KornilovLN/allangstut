@@ -18,6 +18,27 @@
 
   Включать-выключать вентилятор, свет, нагрев и прочие узлы можно посредством блока реле                                                        
 */
+
+//#define DEBUG_OUT
+
+#define PWM_AMOUNT  3
+
+//--- DHT Temperature & Humidity Sensor ------------------------------------------------------------
+//--- DHT Sensor Library: https://github.com/adafruit/DHT-sensor-library
+//--- Adafruit Unified Sensor Lib: https://github.com/adafruit/Adafruit_Sensor
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
+#include <DHT_U.h>
+
+#define DHTPIN 4     // Digital pin connected to the DHT sensor 
+#define DHTTYPE    DHT11     // DHT 11
+//#define DHTTYPE    DHT22     // DHT 22 (AM2302)
+//#define DHTTYPE    DHT21     // DHT 21 (AM2301)
+
+DHT_Unified dht(DHTPIN, DHTTYPE);
+
+uint32_t delayMS;
+
 //--- RTC library DS1307 --------------------------------------------------------------------------- 
 #include <DS1307.h>
 DS1307 rtc(SDA, SCL);
@@ -51,20 +72,23 @@ uint16_t timeLeft16();  // остаток времени в 0-65535
 //--------------------------------------------------------------------------------------------------
 #include <TimerMs.h>
 // (период, мс), (0 не запущен / 1 запущен), (режим: 0 период / 1 таймер)
-TimerMs tmr(1000, 0, 0);   //--- DS опрашивать 1 раз в секунду
-TimerMs tmr2(2000, 0, 0);  //--- BME280 - 1 раз в 2 секунды
-TimerMs tmr3(5000, 0, 0);  //--- Photosensor 1 раз в 5 секунд
-TimerMs tmr4(5000, 0, 0);  //--- RTC опрос 1 раз в 5 секунд
+TimerMs tmr(2000, 0, 0);   //--- DS опрашивать 1 раз //в секунду
+TimerMs tmr2(2000, 0, 0);  //--- BME280 - 1 раз в //2 секунды
+TimerMs tmr3(2000, 0, 0);  //--- Photosensor 1 раз в //5 секунд
+TimerMs tmr4(2000, 0, 0);  //--- RTC опрос 1 раз в //5 секунд
+TimerMs tmr5(2000, 0, 0);  //--- DHT опрос 1 раз в //5 секунд
 
-TimerMs tmrOut(5000, 0, 0);//--- Для вывода
+TimerMs tmrOut(2000, 0, 0);//--- Для вывода
 
+/*
 //--- Вместо Serial -------------------------------------------------------------------------------- 
 //#define MU_STREAM     // подключить Stream.h (readString, readBytes...)
 #define MU_PRINT      // подключить Print.h (print, println)
 //#define MU_TX_BUF 64  // буфер отправки. По умолч. 8. Можно отключить (0)
 //#define MU_RX_BUF 64  // буфер приёма. По умолч. 8. Можно отключить (0)
-#include <MicroUART.h>
-MicroUART uart;
+#include <MicroSerial.h>
+MicroSerial uart;
+*/
 
 //---   Для работы с датчиком DS18B20  -------------------------------------------------------------
 #include <microDS18B20.h>
@@ -92,7 +116,16 @@ GyverBME280 bme;                                    // Создание обье
 //--------------------------------------------------------------------------------------------------
 #define PIN_PHOTORESISTOR A3
 
+//#define GRAD_SIMB   " °C"
+#define GRAD_SIMB   " ^C"
+
 //==================================================================================================
+typedef struct {
+  uint32_t  prt;  //--- etap:3 bit (3 или 4); day: 5 bit (~ 17); rot: 8 bit (>= 102)      
+  uint32_t  alarm;//--- Мл. 4 бита - алармы {гл. температура, гл. влажность, свет, вент.}
+}stPortVal;
+stPortVal portval;
+
 typedef struct {
   char* dwk;
   char* dat;
@@ -107,7 +140,22 @@ typedef struct {
 }stBME280_t;
 stBME280_t clim;
 
+typedef struct {
+  float t;
+  float h;
+}stDHT_t;
+stDHT_t my_dht;
+
+typedef struct {
+  uint32_t etap;  //--- etap (0..3)
+  uint32_t day;   //--- day  (0..17, 20)
+  uint32_t rot;   //--- rot  (0..102, 116)  
+}stHod_t;
+stHod_t hod;
+
 float ds_t[DS_SENSOR_AMOUNT];
+
+float pwm[PWM_AMOUNT];
 
 uint16_t photo_sens;  
 
@@ -118,9 +166,23 @@ uint16_t photo_sens;
 void setup() {
   
   //--- Запуск последовательного порта  
-  uart.begin(9600);
+  Serial.begin(19200);
   pinMode(13, 1);
 
+  pwm[0] = 0.25;
+  pwm[1] = 0.50;
+  pwm[2] = 0.75;  
+
+  //--- Настраиваем port
+  hod.etap = 0;
+  hod.day = 0;
+  hod.rot = 0;
+  portval.prt   = 0x00000000; //0x7166;
+  portval.alarm = 0x00000000; 
+
+  //--- Настраиваем DHT11
+  DHT_Setup();
+  
   //--- настраиваем режимы BME280
   bme.setFilter(FILTER_COEF_8);                     // Настраиваем коофициент фильтрации
   bme.setTempOversampling(OVERSAMPLING_8);          // Настраиваем передискретизацию для датчика температуры
@@ -138,9 +200,9 @@ void setup() {
   // Set the clock to run-mode
   rtc.halt(false);  
   // The following lines can be uncommented to set the time
-  //rtc.setDOW(FRIDAY);        // Set Day-of-Week to SUNDAY
-  //rtc.setTime(21, 59, 0);     // Set the time to 12:00:00 (24hr format)
-  //rtc.setDate(20, 8, 2023);   // Set the date to October 3th, 2010  
+  rtc.setDOW(THURSDAY);       // Set Day-of-Week to SUNDAY
+  rtc.setTime(14, 11, 0);     // Set the time to 12:00:00 (24hr format)
+  rtc.setDate(24, 8, 2023);   // Set the date to October 3th, 2010  
 
   //--- таймеры в режиме периодического срабатывания
   tmr.setPeriodMode();                              // для DS
@@ -155,6 +217,9 @@ void setup() {
   tmr4.setPeriodMode();                             // Для снятия показаний RTC
   tmr4.start();   
 
+  tmr5.setPeriodMode();                             // Для DHT
+  tmr5.start();
+
   tmrOut.setPeriodMode();                           // Для вывода
   tmrOut.start();
 }
@@ -162,33 +227,150 @@ void setup() {
 //===================================================================================================
 
 void loop() {
+
+  //--- Работа на прием из Serial -------------------------------------------
+  while (Serial.available()) Serial.write(Serial.read());
+  //-----------------------------------------------------------------------
+
+  //--- Получение данных из RTC -------------------------------------------  
+  Work_RTC();
+  //-----------------------------------------------------------------------  
+
+  //--- Опрос датчика DHT -------------------------------------------------
+  Work_DHT();
+  //-----------------------------------------------------------------------
   
-  //--- Работа на прием из uart -------------------------------------------
-  while (uart.available()) uart.write(uart.read());
+  //--- Получение результата фотосенсора ----------------------------------  
+  Work_Photosensor();
+  //-----------------------------------------------------------------------  
+
+  //--- Получение результата преобразования от датчиков DS18B20 -----------  
+  Work_DS18B20();
   //-----------------------------------------------------------------------
 
   //--- Опрос датчика BME280 ----------------------------------------------
   Work_BME280();
   //-----------------------------------------------------------------------
 
-  //--- Получение результата преобразования от датчиков DS18B20 -----------  
-  Work_DS18B20();
-  //-----------------------------------------------------------------------
 
-  //--- Получение результата фотосенсора ----------------------------------  
-  Work_Photosensor();
-  //-----------------------------------------------------------------------  
-
-  //--- Получение данных из RTC -------------------------------------------  
-  Work_RTC();
-  //-----------------------------------------------------------------------  
 
   //--- Вывод всех данных -------------------------------------------------
+#ifndef DEBUG_OUT     
+  Out_Allchain() ;
+#endif
+  
+#ifdef DEBUG_OUT   
   Out_All();
+#endif  
   //-----------------------------------------------------------------------
+
+  
+  
 }
 
 //------------------------------------------------------------------------
+
+void Work_Hod() {
+  hod.rot += 1;
+  if ((hod.rot % 6) == 0) {    
+    hod.day += 1;
+    
+    if(hod.day < 3) {
+      hod.etap = 0;
+    }else
+    if(hod.day >= 3 && hod.day < 16) {
+      hod.etap = 1;      
+    }else
+    if(hod.day >= 16 && hod.day < 18) {
+      hod.etap = 2;
+    }else
+    if(hod.day >= 17 && hod.day < 20) {
+      hod.etap = 3;
+    }else {
+      hod.rot = 0;
+      hod.day = 0;
+      hod.etap = 0;
+    }    
+  }  
+
+  //--- etap:3 bit (3 или 4); day: 5 bit (~ 17); rot: 8 bit (>= 102) 
+
+  portval.prt = 0x00000000;
+  uint32_t e = hod.etap;
+  e <<= 13; 
+  portval.prt = e;
+  
+  uint32_t d = hod.day;
+  d <<= 8;
+  portval.prt += d;
+  
+  portval.prt += hod.rot; 
+}
+
+void DHT_Setup() {
+    dht.begin();
+#ifdef DEBUG_OUT      
+    Serial.println(F("DHTxx Unified Sensor Example"));
+#endif    
+    sensor_t sensor;
+    dht.temperature().getSensor(&sensor);
+
+#ifdef DEBUG_OUT    
+    Serial.println(F("------------------------------------"));
+    Serial.println(F("Temperature Sensor"));
+    Serial.print  (F("Sensor Type: ")); Serial.println(sensor.name);
+    Serial.print  (F("Driver Ver:  ")); Serial.println(sensor.version);
+    Serial.print  (F("Unique ID:   ")); Serial.println(sensor.sensor_id);
+    Serial.print  (F("Max Value:   ")); Serial.print(sensor.max_value); Serial.println(F("°C"));
+    Serial.print  (F("Min Value:   ")); Serial.print(sensor.min_value); Serial.println(F("°C"));
+    Serial.print  (F("Resolution:  ")); Serial.print(sensor.resolution); Serial.println(F("°C"));
+    Serial.println(F("------------------------------------"));
+#endif    
+
+    // Print humidity sensor details.
+    dht.humidity().getSensor(&sensor);
+
+#ifdef DEBUG_OUT    
+    Serial.println(F("Humidity Sensor"));
+    Serial.print  (F("Sensor Type: ")); Serial.println(sensor.name);
+    Serial.print  (F("Driver Ver:  ")); Serial.println(sensor.version);
+    Serial.print  (F("Unique ID:   ")); Serial.println(sensor.sensor_id);
+    Serial.print  (F("Max Value:   ")); Serial.print(sensor.max_value); Serial.println(F("%"));
+    Serial.print  (F("Min Value:   ")); Serial.print(sensor.min_value); Serial.println(F("%"));
+    Serial.print  (F("Resolution:  ")); Serial.print(sensor.resolution); Serial.println(F("%"));
+    Serial.println(F("------------------------------------"));
+#endif
+  
+    // Set delay between sensor readings based on sensor details.
+    delayMS = sensor.min_delay / 1000;  
+}
+
+void Work_DHT() {
+  if (tmr5.tick()) {  
+
+    sensors_event_t event;
+    dht.temperature().getEvent(&event);
+    if (isnan(event.temperature)) {
+#ifdef DEBUG_OUT        
+      Serial.println(F("DHT: Error reading temperature!"));
+#endif      
+    }
+    else {
+      my_dht.t = event.temperature;       
+    }
+    
+    dht.humidity().getEvent(&event);
+    if (isnan(event.relative_humidity)) {
+#ifdef DEBUG_OUT        
+      Serial.println(F("DHT: Error reading humidity!"));
+#endif      
+    }
+    else {
+      my_dht.h = event.relative_humidity;
+    }
+  }  
+}
+
 
 void Work_RTC() {
   if (tmr4.tick()) {    
@@ -212,51 +394,155 @@ void Work_BME280() {
   }
 } 
 
+/*
+  //--- В какой последовательности будут уходить данные из контроллера в ПК
+  //--- Памятка в виде структуры данных с датчиков и доп данных
+  typedef struct {
+  uint32_t  prt;  //--- etap:3 bit (3 или 4); day: 5 bit (~ 17); rot: 8 bit (>= 102)      
+  uint32_t  alarm;//--- Мл. 4 бита - алармы {гл. температура, гл. влажность, свет, вент.}
+  }stPortVal;
+
+  typedef struct {
+  payval PWM;     //--- Ten, Led, Vent duty(%){Ten-наполнение, а также: Led, Vent в %}   
+  payval DhtL;    //--- DHT+Light{t,h,l}      {температура, влажность, свет}
+  payval Ds;      //--- array DS {t1,t2,t3}   {3 температуры с массива DS18B20}
+  payval Bme;     //--- Bme280   {t,h,p}      {температура, влажность, давление}
+  }stArrPayval; 
+  или
+                port.prt, 
+                dt.PWM.f0,  dt.PWM.f1, dt.PWM.f2, 
+                dt.DhtL.f0, dt.DhtL.f1,dt.DhtL.f2, 
+                dt.Ds.f0,   dt.Ds.f1,  dt.Ds.f2,
+                dt.Bme.f0,  dt.Bme.f1, dt.Bme.f2,
+                port.alarm);
+ 
+*/
+#ifndef DEBUG_OUT 
+void Out_prt() {
+  Serial.print(portval.prt);
+  Serial.print(" ");
+}
+
+void Out_PWM() {
+  Serial.print(pwm[0]);
+  Serial.print(" ");
+  Serial.print(pwm[1]);
+  Serial.print(" ");
+  Serial.print(pwm[2]);  
+  Serial.print(" ");   
+}
+
+void Out_DhtL() {
+  Serial.print(my_dht.t);
+  Serial.print(" ");
+  Serial.print(my_dht.h);
+  Serial.print(" ");
+  Serial.print((float)photo_sens);  
+  Serial.print(" ");   
+}
+
+void Out_Ds() {
+  Serial.print(ds_t[0]);
+  Serial.print(" ");
+  Serial.print(ds_t[1]);
+  Serial.print(" ");
+  Serial.print(31.41);  
+  Serial.print(" ");    //--- ***************************
+}
+
+void Out_Bme() {
+  Serial.print(clim.t);
+  Serial.print(" ");
+  Serial.print(clim.h);
+  Serial.print(" ");
+  Serial.print(clim.p);  
+  Serial.print(" ");   
+}
+
+void Out_alarm() {
+  static uint32_t stat = 0;
+  
+  switch(stat) {
+  case 0: portval.alarm = 1; stat = 1; break;
+  case 1: portval.alarm = 2; stat = 2; break;
+  case 2: portval.alarm = 4; stat = 3; break;
+  case 3: portval.alarm = 8; stat = 0; break;    
+  }
+ 
+  Serial.print(portval.alarm);
+  Serial.println(" ");
+}
+
+void Out_Allchain() {
+  //--- Выводим все данные цепочкой
+  if (tmrOut.tick()) {
+    Out_prt();
+    Out_PWM();
+    Out_DhtL();
+    Out_Ds();
+    Out_Bme();
+    Out_alarm();
+    Work_Hod();
+  }
+}
+#endif
+
+#ifdef DEBUG_OUT   
 void Out_All() {
 
   // Выводим данные из BME280
   if (tmrOut.tick()) {
 
-      uart.println("---------------------------------------------");    
+      Serial.println(F("---------------------------------------------"));    
       // День недели
-      uart.print(datetime.dwk);
-      uart.print(" ");  
+      Serial.print(datetime.dwk);
+      Serial.print(F(" "));  
       // Дата
-      uart.print(datetime.dat);
-      uart.print(" -- ");
+      Serial.print(datetime.dat);
+      Serial.print(F(" -- "));
       // Время
-      uart.println(datetime.tim);
-      uart.println("---------------------------------------------"); 
+      Serial.println(datetime.tim);
+      Serial.println(F("---------------------------------------------")); 
     
-      uart.print("BME280.t:  ");
-      uart.print(clim.t);             // Выводим темперутуру в [*C]
-      uart.println(" *C");
+      Serial.print(F("BME.t:     "));
+      Serial.print(clim.t);             // Выводим темперутуру в [*C]
+      Serial.println(F(GRAD_SIMB));
 
-      uart.print("BME280.h:  ");  
-      uart.print(clim.h);             // Выводим влажность в [%]
-      uart.println(" %");
+      Serial.print(F("BME.h:     "));  
+      Serial.print(clim.h);             // Выводим влажность в [%]
+      Serial.println(F("  %"));
 
-      uart.print("BME280.p:  ");
-      uart.print(clim.p);             // Выводим давление в мм рт. столба
-      uart.println(" mm Hg");
-      uart.println("");    
+      Serial.print(F("BME.p:     "));
+      Serial.print(clim.p);             // Выводим давление в мм рт. столба
+      Serial.println(F(" mm Hg"));
+      Serial.println("");  
+                                        // Выводим DHT {t, h}
+      Serial.print(F("DHT.t:     "));
+      Serial.print(my_dht.t);
+      Serial.println(F(GRAD_SIMB));  
+        
+      Serial.print(F("DHT.h:     "));
+      Serial.print(my_dht.h);
+      Serial.println(F("  %"));
+      Serial.println(); 
 
-
-      // выводим показания ds
+                                        // выводим показания массива датчиков ds
       for (int i = 0; i < DS_SENSOR_AMOUNT; i++) {
-        uart.print("ds_t[");
-        uart.print(i+1);
-        uart.print("]:\t");
-        uart.println(ds_t[i]);
+        Serial.print(F("DS["));
+        Serial.print(i+1);
+        Serial.print(F("].t:   "));
+        Serial.print(ds_t[i]);
+        Serial.println(F(GRAD_SIMB));
       }
-      uart.println(); 
+      Serial.println(); 
 
-      // выводим показание фотосенсора
-      uart.print("Light: ");
-      uart.println(photo_sens); 
-      uart.println(); 
+                                        // выводим показание фотосенсора
+      Serial.print(F("Light:     "));
+      Serial.println(photo_sens); 
+      Serial.println(); 
   }  
 }
+#endif
 
  void Work_DS18B20() {
   if (tmr.tick()) {
@@ -283,7 +569,7 @@ void Work_Photosensor() {
 void MU_serialEvent() {
   static bool val = 0;
   digitalWrite(13, val = !val);
-  //uart.write(uart.read());
+  //Serial.write(Serial.read());
 }
 
 float k = 0.1;  // коэффициент фильтрации, 0.0-1.0
